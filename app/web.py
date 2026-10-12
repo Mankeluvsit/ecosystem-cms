@@ -124,7 +124,12 @@ def main():
   if not os.path.isabs(server.DB): raise SystemExit('Production requires absolute CMS_DB on persistent storage')
  server.init()
  with server.connect() as c:
-  if not c.execute('SELECT 1 FROM users WHERE active=1 AND role=\'admin\'').fetchone(): raise SystemExit('Run python -m app.manage bootstrap before startup')
+  if not c.execute('SELECT 1 FROM users WHERE active=1 AND role=\'admin\'').fetchone():
+   bootstrap_email=os.getenv('CMS_BOOTSTRAP_EMAIL'); bootstrap_password=os.getenv('CMS_BOOTSTRAP_PASSWORD')
+   if bootstrap_email and bootstrap_password:
+    server.bootstrap(bootstrap_email,bootstrap_password)
+   else:
+    raise SystemExit('Run python -m app.manage bootstrap before startup')
  stop=threading.Event()
  def worker():
   while not stop.is_set():

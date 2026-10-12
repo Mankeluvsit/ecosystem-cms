@@ -21,6 +21,28 @@ Use a persistent absolute `CMS_DB` path, set `CMS_ENV=production`, and set `CMS_
 
 Health check: `GET /api/health`.
 
+## Fly.io deployment
+
+Create the app and persistent volume once, then configure the GitHub repository secret `FLY_API_TOKEN`. Set `CMS_ORIGIN` to the final HTTPS hostname. For the first boot, set `CMS_BOOTSTRAP_EMAIL` and `CMS_BOOTSTRAP_PASSWORD` as temporary Fly secrets; the service creates the administrator only when no active administrator exists. Remove the bootstrap password immediately after the first successful health check.
+
+```bash
+fly auth login
+fly apps create ecosystem-cms
+fly volumes create ecosystem_cms_data --region ord --size 1
+fly secrets set CMS_ORIGIN=https://ecosystem-cms.fly.dev CMS_BOOTSTRAP_EMAIL=admin@example.com CMS_BOOTSTRAP_PASSWORD='use-a-unique-12-character-secret'
+fly deploy
+fly secrets unset CMS_BOOTSTRAP_PASSWORD
+curl -fsS https://ecosystem-cms.fly.dev/api/health
+```
+
+The included workflow repeats tests and deploys on pushes to `main`. Do not store the bootstrap password or API token in the repository.
+
+The local managed build environment uses an injected proxy certificate. To reproduce the image there, pass it as a BuildKit secret; the certificate is never copied into an image layer:
+
+```bash
+docker build --secret id=proxy_ca,src="$CODEX_PROXY_CERT" -t ecosystem-cms:local .
+```
+
 ## Evidence collected
 
 - Baseline controls: 5/5 unit tests pass.
