@@ -23,12 +23,14 @@ Two supporting server corrections were needed: dashboard counts now honor the un
 | Dialog keyboard behavior | TESTED_PASS | Menu and upload-inspector Escape/focus restoration exercised in Chromium |
 | Zoom and reduced motion | TESTED_PASS | Overview at 200% CSS zoom and reduced-motion media emulation |
 | Syntax | TESTED_PASS | Python compilation and `node --check app/admin.js` |
-| CI workflow execution | TESTED_FAIL | First run [38324155309](https://github.com/Mankeluvsit/ecosystem-cms/actions/runs/38324155309) passed server/syntax tests but detected a 2px overview overflow at 768px; grid sizing corrected, rerun pending |
+| CI workflow execution | TESTED_PASS | [Run 38324370845](https://github.com/Mankeluvsit/ecosystem-cms/actions/runs/38324370845) passed all checks for source commit `38acf43da9093f7afb9f88700350d7f0103928fe` |
 | Manual screen-reader assessment | NOT_STARTED | Automated results do not establish full WCAG conformance |
 | Native Android/Termux browser test | NOT_STARTED | Tested in desktop Chromium with mobile viewport sizes |
 | Public deployment | BLOCKED | No hosting provider credential is configured; this source update does not create a deployment |
 
 Screenshots and browser results use an isolated synthetic database. The names, counts, images, and activity are persisted test fixtures, not production telemetry. No production accounts are accessed. No credentials or API tokens appear in the screenshots.
+
+The first GitHub run detected a 2px overview overflow at 768px under the runner's typography. Explicit minimum grid/stack sizing fixed the layout; the successful rerun above verifies the correction. Failed browser runs now replace any prior result with TESTED_FAIL so older screenshots cannot imply a successful current run.
 
 ## Reproduce
 
