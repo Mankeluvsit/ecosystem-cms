@@ -24,6 +24,7 @@ from app import server, web
 def run():
     artifact_dir = ROOT / 'evidence' / 'ui'
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir/'results.json').write_text(json.dumps({'status':'IMPLEMENTED_UNVERIFIED','checks':[],'fixture':'isolated synthetic test data','note':'Current browser run has started; prior screenshots are not pass evidence.'},indent=2)+'\n')
     checks = []
     axe_path=os.getenv('CMS_AXE_PATH')
     axe_source=Path(axe_path).read_text() if axe_path else None
@@ -300,4 +301,10 @@ def run():
     print(json.dumps(report,indent=2))
 
 
-if __name__=='__main__': run()
+if __name__=='__main__':
+    try: run()
+    except Exception as error:
+        report_path=ROOT/'evidence'/'ui'/'results.json'
+        report_path.parent.mkdir(parents=True,exist_ok=True)
+        report_path.write_text(json.dumps({'status':'TESTED_FAIL','error':str(error),'fixture':'isolated synthetic test data','note':'The run failed. Any screenshots are partial evidence only.'},indent=2)+'\n')
+        raise

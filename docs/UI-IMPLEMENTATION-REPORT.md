@@ -23,7 +23,7 @@ Two supporting server corrections were needed: dashboard counts now honor the un
 | Dialog keyboard behavior | TESTED_PASS | Menu and upload-inspector Escape/focus restoration exercised in Chromium |
 | Zoom and reduced motion | TESTED_PASS | Overview at 200% CSS zoom and reduced-motion media emulation |
 | Syntax | TESTED_PASS | Python compilation and `node --check app/admin.js` |
-| CI workflow execution | IMPLEMENTED_UNVERIFIED | `.github/workflows/verify.yml` provides the same checks; local evidence does not establish a GitHub run |
+| CI workflow execution | TESTED_FAIL | First run [38324155309](https://github.com/Mankeluvsit/ecosystem-cms/actions/runs/38324155309) passed server/syntax tests but detected a 2px overview overflow at 768px; grid sizing corrected, rerun pending |
 | Manual screen-reader assessment | NOT_STARTED | Automated results do not establish full WCAG conformance |
 | Native Android/Termux browser test | NOT_STARTED | Tested in desktop Chromium with mobile viewport sizes |
 | Public deployment | BLOCKED | No hosting provider credential is configured; this source update does not create a deployment |
