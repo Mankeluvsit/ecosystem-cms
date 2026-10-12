@@ -1,0 +1,35 @@
+name: Verify CMS workflows and UI
+
+on:
+  pull_request:
+  push:
+    branches: [main, build/integrated-cms]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements-dev.txt
+      - run: python -m unittest discover -s tests -v
+      - run: python -m compileall -q app scripts tests
+      - run: node --check app/admin.js
+      - run: python -m playwright install --with-deps chromium
+      - name: Download pinned accessibility test engine
+        run: curl -fsSL --retry 2 https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.3/axe.min.js -o "$RUNNER_TEMP/axe.min.js"
+      - name: Exercise browser workflows and accessibility
+        run: CMS_AXE_PATH="$RUNNER_TEMP/axe.min.js" python scripts/verify_ui.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cms-ui-evidence
+          path: evidence/ui/

@@ -50,5 +50,5 @@ docker build --secret id=proxy_ca,src="$CODEX_PROXY_CERT" -t ecosystem-cms:local
 - HTTP startup check: migration, bootstrap, health `200`, public bootstrap `200`, unauthenticated dashboard `401`, and password login `200`.
 - Acceptance check: disabling forum returned `403 MODULE_DISABLED`; role and Publish labels changed through runtime controls; chat retention accepted `30`; audit endpoint returned `200`; draft entry was absent from public listing and slug lookup returned `404`.
 
-Browser screenshot/accessibility automation remains environment-dependent; the implementation includes semantic controls, keyboard focus styles, status text, responsive CSS, and reduced-motion handling, but no browser run is claimed until a browser executable is available.
+The Ecosystem Studio UI has now been exercised in Chromium with Playwright. Ten unit/HTTP integration cases pass, and the browser suite covers authoring, media, community, settings, users, API scopes, and audit undo. Responsive and axe-core evidence is recorded in `evidence/ui`; see [docs/UI-IMPLEMENTATION-REPORT.md](docs/UI-IMPLEMENTATION-REPORT.md) for commands and limits. Automated checks do not establish full WCAG conformance or native Android verification.
 

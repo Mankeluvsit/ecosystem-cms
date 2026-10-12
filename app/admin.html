@@ -1,1 +1,25 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title><link rel="stylesheet" href="/assets/app.css"><script src="/assets/admin.js" defer></script></head><body><header id="header"></header><div class="shell"><nav id="nav" aria-label=""></nav><main id="main" tabindex="-1"></main></div><aside id="feedback" aria-live="polite" aria-atomic="true"></aside><section id="progress" hidden></section><dialog id="confirmation"><form method="dialog"><h2 id="confirm-title"></h2><p id="confirm-body"></p><div class="actions"><button id="confirm-cancel" value="cancel"></button><button id="confirm-yes" value="confirm"></button></div></form></dialog></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title></title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/admin.js" defer></script>
+</head>
+<body class="studio">
+  <a id="skip" class="skip-link" href="#main"></a>
+  <aside id="sidebar" class="sidebar"><div id="brand"></div><nav id="nav"></nav><div id="sidebar-footer"></div></aside>
+  <div class="workspace">
+    <header id="header" class="topbar"></header>
+    <section id="operation-status" class="operation-status" hidden>
+      <div id="feedback" role="status" aria-live="polite" aria-atomic="true"></div>
+      <ol id="progress"></ol>
+    </section>
+    <main id="main" tabindex="-1"></main>
+  </div>
+  <dialog id="confirmation" aria-labelledby="confirm-title"><form method="dialog"><h2 id="confirm-title"></h2><p id="confirm-body"></p><div class="actions"><button id="confirm-cancel" value="cancel"></button><button id="confirm-yes" value="confirm"></button></div></form></dialog>
+  <dialog id="inspector" aria-labelledby="inspector-title"></dialog>
+  <dialog id="mobile-menu" aria-labelledby="mobile-menu-title"></dialog>
+</body>
+</html>

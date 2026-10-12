@@ -1,0 +1,132 @@
+"""HTTP acceptance tests: verify the interface's real server boundaries."""
+import base64
+import http.client
+import io
+import json
+import tempfile
+import threading
+import time
+import unittest
+from app import server, web
+from PIL import Image
+
+
+class HTTPAcceptance(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.previous_db = server.DB
+        server.DB = self.tmp.name + '/cms.sqlite3'
+        server.init()
+        self.uid = server.bootstrap('admin@example.test', 'TestPasswordOnly123!')
+        self.http = web.make_server(port=0)
+        self.worker = threading.Thread(target=self.http.serve_forever, daemon=True)
+        self.worker.start()
+        self.cookie = ''; self.csrf = ''
+        status, result, headers = self.call('/api/login', {'email': 'admin@example.test', 'password': 'TestPasswordOnly123!'}, anonymous=True)
+        self.assertEqual(status, 200)
+        self.cookie = headers['set-cookie'].split(';')[0]
+        self.csrf = result['csrf']
+
+    def tearDown(self):
+        self.http.shutdown(); self.http.server_close(); self.worker.join(timeout=2)
+        server.DB = self.previous_db
+        self.tmp.cleanup()
+
+    def call(self, path, data=None, anonymous=False, headers=None):
+        conn = http.client.HTTPConnection('127.0.0.1', self.http.server_port, timeout=5)
+        h = {'Content-Type': 'application/json'}
+        if not anonymous: h.update({'Cookie': self.cookie, 'X-CSRF-Token': self.csrf})
+        h.update(headers or {})
+        conn.request('GET' if data is None else 'POST', path, None if data is None else json.dumps(data), h)
+        r = conn.getresponse(); body = r.read(); response_headers = {k.lower(): v for k, v in r.getheaders()}
+        result = json.loads(body) if 'application/json' in response_headers.get('content-type', '') else body.decode(errors='replace')
+        conn.close(); return r.status, result, response_headers
+
+    def post(self, path, data):
+        status, result, _ = self.call(path, data)
+        self.assertEqual(status, 200, result)
+        return result
+
+    def test_control_acceptance_and_retention_execution(self):
+        disabled = self.post('/api/change', {'category':'flags','key':'forum.enabled','value':False,'reason':'acceptance','expected_version':0})
+        self.assertEqual(self.call('/api/forum/categories')[:2], (403, {'error':'MODULE_DISABLED'}))
+        self.post('/api/undo', {'audit_id':disabled['audit_id'],'expected_version':1})
+        self.assertEqual(self.call('/api/forum/categories')[0], 200)
+        self.post('/api/change', {'category':'labels','key':'role.editor','value':'Publisher','reason':'acceptance','expected_version':0})
+        self.post('/api/change', {'category':'labels','key':'publish.button','value':'Release now','reason':'acceptance','expected_version':0})
+        boot = self.call('/api/public/bootstrap', anonymous=True)[1]
+        self.assertEqual(boot['labels']['role.editor'], 'Publisher')
+        self.assertEqual(boot['labels']['publish.button'], 'Release now')
+        person = self.post('/api/users/create', {'email':'writer@example.test','password':'WriterPasswordOnly123!','role':'editor'})
+        self.assertEqual(next(u for u in self.call('/api/users')[1] if u['id']==person['id'])['role'], 'editor')
+        self.post('/api/change', {'category':'settings','key':'chat.retention_days','value':30,'reason':'acceptance','expected_version':0})
+        with server.connect() as c:
+            for days in (31, 29):
+                c.execute('INSERT INTO messages(room_id,author_id,body,created_at) VALUES(1,?,?,?)',(self.uid,str(days),int(time.time())-days*86400))
+        result = self.post('/api/chat/prune', {})
+        self.assertEqual(result['deleted'], 1)
+        self.assertEqual([m['body'] for m in self.call('/api/chat/messages?room_id=1')[1]], ['29'])
+        audit = self.call('/api/audit')[1]
+        change = next(a for a in audit if a['key']=='publish.button')
+        self.assertEqual(change['actor'], str(self.uid)); self.assertEqual(change['reason'], 'acceptance')
+        self.assertEqual(json.loads(change['new_value']), 'Release now')
+
+    def test_publishing_revisions_and_public_isolation(self):
+        entry = self.post('/api/content/create', {'type_id':'page','slug':'first-entry','title':'A story','body':'<script>alert(1)</script>','fields':{},'media_ids':[]})
+        self.assertEqual(self.call('/api/public/entries', anonymous=True)[1], [])
+        self.assertEqual(self.call('/p/first-entry', anonymous=True)[0], 404)
+        status, result, _ = self.call('/api/content/update', {'id':entry['id'],'expected_version':5,'type_id':'page','slug':'first-entry','title':'Lost','body':'x','fields':{},'media_ids':[]})
+        self.assertEqual((status, result['error']), (409, 'VERSION_CONFLICT'))
+        self.post('/api/content/transition', {'id':entry['id'],'expected_version':0,'status':'published'})
+        public = self.call('/p/first-entry', anonymous=True)
+        self.assertEqual(public[0], 200); self.assertIn('&lt;script&gt;', public[1]); self.assertNotIn('<script>alert', public[1])
+        revision = self.call('/api/content/revisions?id='+str(entry['id']))[1][0]
+        self.post('/api/content/restore', {'id':entry['id'],'expected_version':1,'revision_id':revision['id']})
+        self.assertEqual(self.call('/p/first-entry', anonymous=True)[0], 404)
+
+    def test_images_references_and_transforms(self):
+        image = io.BytesIO(); Image.new('RGB',(8,6),'green').save(image,format='PNG')
+        asset = self.post('/api/media/upload', {'name':'image.png','alt':'Green rectangle','data':base64.b64encode(image.getvalue()).decode()})
+        self.assertEqual(self.call('/media?id='+str(asset['id']), anonymous=True)[0], 404)
+        copy = self.post('/api/media/transform', {'id':asset['id'],'width':4})
+        self.assertEqual(next(m for m in self.call('/api/media')[1] if m['id']==copy['id'])['width'],4)
+        entry = self.post('/api/content/create', {'type_id':'page','slug':'image-entry','title':'Image','body':'Body','fields':{},'media_ids':[asset['id']]})
+        self.assertEqual(self.call('/api/media/delete', {'id':asset['id']})[0],409)
+        self.post('/api/content/transition', {'id':entry['id'],'expected_version':0,'status':'published'})
+        self.assertEqual(self.call('/media?id='+str(asset['id']), anonymous=True)[0],200)
+
+    def test_forum_chat_and_scoped_keys(self):
+        thread = self.post('/api/forum/threads', {'category_id':1,'title':'Welcome','body':'Hello'})
+        self.assertEqual(self.call('/api/forum/replies', {'thread_id':thread['id'],'body':'reply'})[0],409)
+        self.post('/api/forum/moderate', {'kind':'threads','id':thread['id'],'state':'approved','expected_version':0})
+        reply = self.post('/api/forum/replies', {'thread_id':thread['id'],'body':'Reply'})
+        queue=self.call('/api/forum/moderation')[1]
+        self.assertEqual([(item['kind'],item['thread_id']) for item in queue],[('replies',thread['id'])])
+        self.post('/api/forum/moderate', {'kind':'replies','id':reply['id'],'state':'approved','expected_version':0})
+        self.post('/api/forum/lock', {'id':thread['id'],'expected_version':1,'locked':True})
+        self.assertEqual(self.call('/api/forum/replies', {'thread_id':thread['id'],'body':'Blocked'})[0],409)
+        room = self.post('/api/chat/rooms', {'name':'Studio'})
+        message = self.post('/api/chat/send', {'room_id':room['id'],'body':'Hello room'})
+        self.assertEqual(self.call('/api/chat/messages?room_id='+str(room['id']))[1][0]['id'],message['id'])
+        self.assertEqual(self.post('/api/chat/presence', {'room_id':room['id']})[0]['id'],self.uid)
+        key = self.post('/api/keys/create', {'name':'Read only','days':1,'scopes':['content.read']})
+        bearer = {'Authorization':'Bearer '+key['token']}
+        self.assertEqual(self.call('/api/content/entries', anonymous=True, headers=bearer)[0],200)
+        self.assertEqual(self.call('/api/users', anonymous=True, headers=bearer)[0],403)
+        self.post('/api/keys/revoke', {'id':key['id']})
+        self.assertEqual(self.call('/api/content/entries', anonymous=True, headers=bearer)[0],401)
+
+    def test_authentication_csrf_registry_and_dashboard_visibility(self):
+        self.assertEqual(self.call('/api/dashboard', anonymous=True, headers={'X-Actor':'admin','X-Role':'admin'})[0],401)
+        self.assertEqual(self.call('/api/change', {'category':'labels','key':'publish.button','value':'Bad','reason':'test','expected_version':0}, headers={'X-CSRF-Token':''})[0],403)
+        self.assertTrue(all(a in server.ACTIONS for a, op in web.ROUTES.values()))
+        editor = self.post('/api/users/create', {'email':'editor@example.test','password':'EditorPassword123!','role':'editor'})
+        status, login, headers = self.call('/api/login', {'email':'editor@example.test','password':'EditorPassword123!'}, anonymous=True)
+        self.assertEqual(status,200); self.cookie=headers['set-cookie'].split(';')[0]; self.csrf=login['csrf']
+        counts = self.call('/api/dashboard')[1]
+        self.assertNotIn('users',counts); self.assertNotIn('pending',counts)
+        self.assertEqual(self.call('/api/users')[0],403)
+        self.assertEqual(self.call('/api/forum/moderation')[0],403)
+        self.assertEqual(self.call('/api/change', {'category':'flags','key':'forum.enabled','value':False,'reason':'test','expected_version':0})[0],403)
+
+if __name__ == '__main__': unittest.main()

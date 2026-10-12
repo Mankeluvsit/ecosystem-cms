@@ -1,0 +1,86 @@
+[
+  {
+    "screen": "sign-in desktop",
+    "violations": []
+  },
+  {
+    "screen": "public article",
+    "violations": []
+  },
+  {
+    "screen": "upload dialog desktop",
+    "violations": []
+  },
+  {
+    "screen": "overview at 390px",
+    "violations": []
+  },
+  {
+    "screen": "content at 390px",
+    "violations": []
+  },
+  {
+    "screen": "media at 390px",
+    "violations": []
+  },
+  {
+    "screen": "forum at 390px",
+    "violations": []
+  },
+  {
+    "screen": "chat at 390px",
+    "violations": []
+  },
+  {
+    "screen": "config at 390px",
+    "violations": []
+  },
+  {
+    "screen": "users at 390px",
+    "violations": []
+  },
+  {
+    "screen": "api at 390px",
+    "violations": []
+  },
+  {
+    "screen": "audit at 390px",
+    "violations": []
+  },
+  {
+    "screen": "overview at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "content at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "media at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "forum at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "chat at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "config at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "users at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "api at 1440px",
+    "violations": []
+  },
+  {
+    "screen": "audit at 1440px",
+    "violations": []
+  }
+]

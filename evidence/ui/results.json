@@ -1,0 +1,26 @@
+{
+  "status": "TESTED_PASS",
+  "checks": [
+    "Password sign-in and permitted dashboard render",
+    "Create draft with typed custom fields and visual media references",
+    "Conflict preserves editor input and marks failed/blocked stages",
+    "Publish confirmation and real public page",
+    "Media upload persists; inspector Escape restores focus",
+    "Moderation confirmation and reply workflow",
+    "Failed chat preserves composer; successful send clears it",
+    "Label registry changes Publish and role display text without source changes",
+    "Role label preserves stable editor ID and user creation works",
+    "Edited Publish label appears and UTC scheduling changes persisted workflow state",
+    "Feature quick-select confirmation disables the real forum and restores it",
+    "Scope picker creates a key with one-time token display",
+    "Audit detail and confirmed control undo",
+    "No page overflow on nine modules and editor at 320, 390, 768, 1024 and 1440px; mobile scope picker fits; menu Escape restores focus",
+    "200% CSS zoom overview reflow and reduced-motion setting",
+    "axe-core automated WCAG A/AA checks: no violations on sign-in, public article and nine modules at 390px and 1440px",
+    "No uncaught JavaScript errors during browser run"
+  ],
+  "fixture": "isolated synthetic test data",
+  "screenshots": "/workspace/ecosystem-cms/evidence/ui",
+  "browser": "Chromium via Playwright",
+  "accessibility_scans": 21
+}

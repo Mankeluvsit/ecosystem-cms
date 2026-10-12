@@ -232,7 +232,16 @@ def execute(op,user,data,query=None):
    c.execute('DELETE FROM sessions WHERE token_hash=?',(data['_token_hash'],)); record(c,actor,'auth','logout',None,{'success':True},'session revoked'); return {'ok':True}
   if op=='audit': return [dict(x) for x in c.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 200')]
   if op=='dashboard':
-   return {'entries':c.execute('SELECT count(*) FROM entries').fetchone()[0],'media':c.execute('SELECT count(*) FROM media').fetchone()[0],'pending':c.execute("SELECT (SELECT count(*) FROM threads WHERE state='pending')+(SELECT count(*) FROM replies WHERE state='pending')").fetchone()[0],'messages':c.execute('SELECT count(*) FROM messages').fetchone()[0],'users':c.execute('SELECT count(*) FROM users WHERE active=1').fetchone()[0]}
+   allowed=permissions(user,c); counts={}
+   if 'content.read' in allowed: counts['entries']=c.execute('SELECT count(*) FROM entries').fetchone()[0]
+   if 'media.read' in allowed: counts['media']=c.execute('SELECT count(*) FROM media').fetchone()[0]
+   if 'forum.moderate' in allowed and value(c,'flags','forum.enabled'):
+    counts['pending']=c.execute("SELECT (SELECT count(*) FROM threads WHERE state='pending')+(SELECT count(*) FROM replies WHERE state='pending')").fetchone()[0]
+   if 'chat.read' in allowed and value(c,'flags','chat.enabled'):
+    cutoff=int(time.time())-value(c,'settings','chat.retention_days')*86400
+    counts['messages']=c.execute('SELECT count(*) FROM messages WHERE created_at>=?',(cutoff,)).fetchone()[0]
+   if 'auth.users.read' in allowed: counts['users']=c.execute('SELECT count(*) FROM users WHERE active=1').fetchone()[0]
+   return counts
   if op=='users': return [dict(r) for r in c.execute('SELECT id,email,role,active,created_at FROM users')]
   if op=='user_create':
    role=data['role']
@@ -317,6 +326,10 @@ def execute(op,user,data,query=None):
    if c.execute('SELECT 1 FROM media_references WHERE media_id=?',(row['id'],)).fetchone(): fail('MEDIA_IN_USE',409)
    c.execute('DELETE FROM media WHERE id=?',(row['id'],)); record(c,actor,'media',row['id'],{'name':row['name']},None,'asset deleted'); return {'ok':True}
   if op=='forum_categories': return [dict(r) for r in c.execute('SELECT * FROM categories')]
+  if op=='forum_queue':
+   threads=[dict(r) for r in c.execute("SELECT 'threads' AS kind,id,id AS thread_id,title,body,author_id,state,version,created_at FROM threads WHERE state='pending'")]
+   replies=[dict(r) for r in c.execute("SELECT 'replies' AS kind,r.id,r.thread_id,t.title,r.body,r.author_id,r.state,r.version,r.created_at FROM replies r JOIN threads t ON t.id=r.thread_id WHERE r.state='pending'")]
+   return sorted(threads+replies,key=lambda r:r['created_at'],reverse=True)
   if op=='forum_category_create':
    name=text(data['name'],1,120); id=c.execute('INSERT INTO categories(name) VALUES(?)',(name,)).lastrowid; record(c,actor,'forum','category:'+str(id),None,{'name':name},'category created'); return {'id':id}
   if op=='forum_threads':
@@ -357,8 +370,9 @@ def execute(op,user,data,query=None):
    return [dict(r) for r in c.execute('SELECT u.id,u.email FROM presence p JOIN users u ON u.id=p.user_id WHERE p.room_id=? AND seen_at>=? AND u.active=1',(room['id'],timestamp-90))]
   if op=='chat_send':
    room=row_for(c,'rooms',data['room_id']); body=text(data['body'],1,4000)
-   id=c.execute('INSERT INTO messages(room_id,author_id,body,created_at) VALUES(?,?,?,?)',(room['id'],actor,body,int(time.time()))).lastrowid
-   record(c,actor,'chat','message:'+str(id),None,{'room_id':room['id']},'message sent'); return {'id':id}
+   timestamp=int(time.time())
+   id=c.execute('INSERT INTO messages(room_id,author_id,body,created_at) VALUES(?,?,?,?)',(room['id'],actor,body,timestamp)).lastrowid
+   record(c,actor,'chat','message:'+str(id),None,{'room_id':room['id']},'message sent'); return {'id':id,'created_at':timestamp}
   if op=='chat_delete':
    row=row_for(c,'messages',data['id']); c.execute('DELETE FROM messages WHERE id=?',(row['id'],)); record(c,actor,'chat','message:'+str(row['id']),{'room_id':row['room_id']},None,'message moderated'); return {'ok':True}
   if op=='keys': return [dict(r) for r in c.execute('SELECT id,name,scopes,expires_at,revoked,created_at FROM api_keys WHERE user_id=?',(actor,))]

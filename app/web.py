@@ -17,7 +17,7 @@ for method,path,action,operation in [
  ('GET','/api/dashboard','admin.read','dashboard'),('GET','/api/users','auth.users.read','users'),('POST','/api/users/create','auth.users.write','user_create'),('POST','/api/users/update','auth.users.write','user_update'),
  ('GET','/api/content/types','content.read','types'),('POST','/api/content/types','content.write','type_create'),('GET','/api/content/entries','content.read','entries'),('POST','/api/content/create','content.write','entry_create'),('POST','/api/content/update','content.write','entry_update'),('POST','/api/content/transition','content.write','entry_transition'),('GET','/api/content/revisions','content.read','revisions'),('POST','/api/content/restore','content.write','entry_restore'),
  ('GET','/api/media','media.read','media'),('GET','/api/media/file','media.read','media_file'),('POST','/api/media/upload','media.write','media_upload'),('POST','/api/media/transform','media.write','media_transform'),('POST','/api/media/delete','media.write','media_delete'),
- ('GET','/api/forum/categories','forum.read','forum_categories'),('POST','/api/forum/categories','forum.moderate','forum_category_create'),('GET','/api/forum/threads','forum.read','forum_threads'),('POST','/api/forum/threads','forum.write','forum_thread_create'),('GET','/api/forum/replies','forum.read','forum_replies'),('POST','/api/forum/replies','forum.write','forum_reply_create'),('POST','/api/forum/moderate','forum.moderate','forum_moderate'),('POST','/api/forum/lock','forum.moderate','forum_lock'),
+ ('GET','/api/forum/categories','forum.read','forum_categories'),('POST','/api/forum/categories','forum.moderate','forum_category_create'),('GET','/api/forum/threads','forum.read','forum_threads'),('POST','/api/forum/threads','forum.write','forum_thread_create'),('GET','/api/forum/replies','forum.read','forum_replies'),('POST','/api/forum/replies','forum.write','forum_reply_create'),('POST','/api/forum/moderate','forum.moderate','forum_moderate'),('POST','/api/forum/lock','forum.moderate','forum_lock'),('GET','/api/forum/moderation','forum.moderate','forum_queue'),
  ('GET','/api/chat/rooms','chat.read','chat_rooms'),('POST','/api/chat/rooms','chat.manage','chat_room_create'),('GET','/api/chat/messages','chat.read','chat_messages'),('POST','/api/chat/presence','chat.read','chat_presence'),('POST','/api/chat/send','chat.write','chat_send'),('POST','/api/chat/delete','chat.manage','chat_delete'),('POST','/api/chat/prune','chat.manage','chat_prune'),
  ('GET','/api/keys','api.keys.read','keys'),('POST','/api/keys/create','api.keys.write','key_create'),('POST','/api/keys/revoke','api.keys.write','key_revoke'),
 ]: route(method,path,action,operation)
@@ -101,18 +101,23 @@ class Handler(BaseHTTPRequestHandler):
    labels={k:v['value'] for k,v in server.get_state(c)['labels'].items()}; title=server.value(c,'settings','site.title'); status=200
    if path=='/':
     rows=c.execute("SELECT * FROM entries WHERE status='published' ORDER BY id DESC").fetchall()
-    body='<h1>'+esc(labels['site.heading'])+'</h1><p>'+esc(labels['public.description'])+'</p>'
-    body+=''.join('<article class="card"><h2><a href="/p/'+esc(r['slug'])+'">'+esc(r['title'])+'</a></h2><p>'+esc(r['body'][:220])+'</p></article>' for r in rows) or '<p>'+esc(labels['public.empty'])+'</p>'
+    body='<section class="public-hero"><p class="eyebrow">'+esc(labels['public.home'])+'</p><h1>'+esc(labels['site.heading'])+'</h1><p>'+esc(labels['public.description'])+'</p></section><section class="public-grid">'
+    for r in rows:
+     media=c.execute('SELECT m.id,m.alt FROM media m JOIN media_references mr ON mr.media_id=m.id WHERE mr.entry_id=? ORDER BY m.id LIMIT 1',(r['id'],)).fetchone()
+     image='<img src="/media?id='+str(media['id'])+'" alt="'+esc(media['alt'])+'" loading="lazy">' if media else ''
+     body+='<article class="public-card">'+image+'<h2><a href="/p/'+esc(r['slug'])+'">'+esc(r['title'])+'</a></h2><p>'+esc(r['body'][:220])+'</p></article>'
+    if not rows: body+='<p>'+esc(labels['public.empty'])+'</p>'
+    body+='</section>'
     description=labels['public.description']; canonical='/'
    else:
     row=c.execute("SELECT * FROM entries WHERE slug=? AND status='published'",(path[3:],)).fetchone()
     if not row: body='<h1>'+esc(labels['not.found'])+'</h1>'; status=404; description=labels['not.found']; canonical=path
     else:
-     title=row['title']+' · '+title; description=row['body'][:155]; canonical='/p/'+row['slug']; body='<article><h1>'+esc(row['title'])+'</h1><div class="prose">'+esc(row['body'])+'</div>'
+     title=row['title']+' · '+title; description=row['body'][:155]; canonical='/p/'+row['slug']; body='<article class="public-article"><p class="eyebrow">'+esc(labels['public.home'])+'</p><h1>'+esc(row['title'])+'</h1><div class="prose">'+esc(row['body'])+'</div>'
      for media in c.execute('SELECT m.* FROM media m JOIN media_references r ON r.media_id=m.id WHERE r.entry_id=?',(row['id'],)): body+='<img class="public-image" src="/media?id='+str(media['id'])+'" alt="'+esc(media['alt'])+'">'
      body+='</article>'
    origin=os.getenv('CMS_ORIGIN','')
-   document='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title><meta name="description" content="'+esc(description)+'"><link rel="canonical" href="'+esc(origin+canonical)+'"><link rel="stylesheet" href="/assets/app.css"></head><body><header><a href="/">'+esc(labels['public.home'])+'</a><a href="/admin">'+esc(labels['login.title'])+'</a></header><main class="public-main">'+body+'</main></body></html>'
+   document='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title><meta name="description" content="'+esc(description)+'"><link rel="canonical" href="'+esc(origin+canonical)+'"><link rel="stylesheet" href="/assets/app.css"></head><body class="public-site"><header class="public-header"><a class="public-brand" href="/">'+esc(labels['site.heading'])+'</a><a class="public-login" href="/admin">'+esc(labels['login.title'])+'</a></header><main class="public-main">'+body+'</main></body></html>'
    self.send(status,document,'text/html; charset=utf-8')
  def do_GET(self): self.dispatch()
  def do_POST(self): self.dispatch()
