@@ -1,16 +1,8 @@
 # Ecosystem CMS
 
-Work-in-progress implementation of a modular CMS ecosystem.
+An executable modular CMS with SQLite migrations, password sessions, server-side authorization, audited runtime controls, content workflow, media, forum, chat, public rendering, responsive admin UI, and scoped API keys.
 
-## Current status
+Read [docs/BLUEPRINT.md](docs/BLUEPRINT.md) for module contracts and [DEPLOYMENT.md](DEPLOYMENT.md) for startup, production configuration, and verification evidence.
 
-This repository is being initialized for importing the existing local Control Lab prototype. **The complete source code is not yet imported.** No production-ready functionality or public deployment is claimed.
-
-## Intended modules
-
-`config`, `auth`, `content`, `media`, `forum`, `chat`, `public`, `admin`, `api`.
-
-## Security
-
-The local prototype uses spoofable identity headers. Do not deploy it publicly until authentication and authorization are replaced and verified.
+The service is not declared production-ready until deployment-specific TLS, persistent storage, secret handling, backup/restore, and browser verification are completed in the target environment.
 
