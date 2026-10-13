@@ -14,13 +14,18 @@
     "Feature quick-select confirmation disables the real forum and restores it",
     "Scope picker creates a key with one-time token display",
     "Audit detail and confirmed control undo",
+    "Audit details replace literal null with a meaningful empty-value explanation",
+    "Theme preview does not persist; save, contrast rejection, import/export, private AI contract, public font and list layout work",
+    "Admin selects a news category; only approved threads appear on home, news list and article pages",
+    "Default style can be previewed and saved without deployment",
     "No page overflow on nine modules and editor at 320, 390, 768, 1024 and 1440px; mobile scope picker fits; menu Escape restores focus",
     "200% CSS zoom overview reflow and reduced-motion setting",
+    "No literal null footer nodes across forms/screens; editor chat hides moderation without stray null text",
     "axe-core automated WCAG A/AA checks: no violations on sign-in, public article and nine modules at 390px and 1440px",
     "No uncaught JavaScript errors during browser run"
   ],
   "fixture": "isolated synthetic test data",
   "screenshots": "/workspace/ecosystem-cms/evidence/ui",
   "browser": "Chromium via Playwright",
-  "accessibility_scans": 21
+  "accessibility_scans": 24
 }

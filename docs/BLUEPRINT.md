@@ -6,6 +6,8 @@ The application is a Python standard-library HTTP service with SQLite persistenc
 
 The browser admin client is a same-origin accessible single page interface. `app/admin.js` consumes the same API as other clients. Public pages are server-rendered from published entries and never query drafts.
 
+Approved forum posts can also appear as public news when an administrator selects their category. Visual themes are persisted, validated, served as semantic CSS tokens, and exposed through a protected AI-readable contract. See [THEMES-AND-PUBLIC-NEWS.md](THEMES-AND-PUBLIC-NEWS.md) for schemas, route/action mappings, runtime settings, and acceptance rules.
+
 ## Control plane
 
 `SETTINGS`, `FLAGS`, `ACTIONS`, `LABELS`, and role permissions are declared in `app/registry.py`. Runtime values and versions are persisted in `controls`; changes are validated, written transactionally, recorded in `audit`, and can be undone for settings, flags, labels, and permissions while the current version still matches. Labels are looked up by the public and admin interfaces. Flags are enforced by module operations.

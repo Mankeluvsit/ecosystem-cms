@@ -14,6 +14,10 @@ for method,path,action,operation in [
  ('GET','/api/health','api.health','health'),('GET','/api/public/bootstrap','public.read','public_boot'),('GET','/api/public/entries','public.read','public_entries'),('GET','/api/public/entry','public.read','public_entry'),
  ('POST','/api/login','auth.login','login'),('POST','/api/logout','auth.session','logout'),('GET','/api/me','auth.session','me'),
  ('GET','/api/registry','config.read','registry'),('GET','/api/state','config.read','state'),('GET','/api/audit','audit.read','audit'),('POST','/api/change','config.write','change'),('POST','/api/undo','config.write','undo'),
+ ('GET','/api/theme/contract','config.read','theme_contract'),('POST','/api/theme/preview','config.write','theme_preview'),
+ ('GET','/api/publication/options','config.read','publication_options'),
+ ('POST','/api/news/settings','config.write','news_settings'),
+ ('GET','/api/public/news','public.read','public_news'),('GET','/api/public/news/item','public.read','public_news_item'),
  ('GET','/api/dashboard','admin.read','dashboard'),('GET','/api/users','auth.users.read','users'),('POST','/api/users/create','auth.users.write','user_create'),('POST','/api/users/update','auth.users.write','user_update'),
  ('GET','/api/content/types','content.read','types'),('POST','/api/content/types','content.write','type_create'),('GET','/api/content/entries','content.read','entries'),('POST','/api/content/create','content.write','entry_create'),('POST','/api/content/update','content.write','entry_update'),('POST','/api/content/transition','content.write','entry_transition'),('GET','/api/content/revisions','content.read','revisions'),('POST','/api/content/restore','content.write','entry_restore'),
  ('GET','/api/media','media.read','media'),('GET','/api/media/file','media.read','media_file'),('POST','/api/media/upload','media.write','media_upload'),('POST','/api/media/transform','media.write','media_transform'),('POST','/api/media/delete','media.write','media_delete'),
@@ -54,11 +58,14 @@ class Handler(BaseHTTPRequestHandler):
   try:
    url=urlparse(self.path); path=url.path; query={k:v[0] for k,v in parse_qs(url.query).items()}
    user,token,is_key=self.current_identity()
+   if self.command=='GET' and path=='/assets/theme.css':
+    with server.connect() as c: stylesheet=server.themes.css(server.value(c,'settings','appearance.theme'))
+    return self.send(200,stylesheet,'text/css; charset=utf-8')
    if self.command=='GET' and path in ('/admin','/admin/','/assets/admin.js','/assets/app.css'):
     file={'/admin':'admin.html','/admin/':'admin.html','/assets/admin.js':'admin.js','/assets/app.css':'app.css'}[path]
     mime={'html':'text/html; charset=utf-8','js':'text/javascript; charset=utf-8','css':'text/css; charset=utf-8'}[file.split('.')[-1]]
     return self.send(200,(ROOT/file).read_bytes(),mime)
-   if self.command=='GET' and (path=='/' or path.startswith('/p/')): return self.public_page(path)
+   if self.command=='GET' and (path=='/' or path.startswith('/p/') or path=='/news' or path.startswith('/news/')): return self.public_page(path)
    if self.command=='GET' and path=='/media': return self.media_file(query,user,public=True)
    registered=ROUTES.get(self.command+' '+path)
    if not registered: server.fail('NOT_FOUND',404)
@@ -99,16 +106,36 @@ class Handler(BaseHTTPRequestHandler):
   esc=html.escape
   with server.connect() as c:
    labels={k:v['value'] for k,v in server.get_state(c)['labels'].items()}; title=server.value(c,'settings','site.title'); status=200
+   theme=server.value(c,'settings','appearance.theme'); news=server.public_news(c)
    if path=='/':
     rows=c.execute("SELECT * FROM entries WHERE status='published' ORDER BY id DESC").fetchall()
-    body='<section class="public-hero"><p class="eyebrow">'+esc(labels['public.home'])+'</p><h1>'+esc(labels['site.heading'])+'</h1><p>'+esc(labels['public.description'])+'</p></section><section class="public-grid">'
+    body='<section class="public-hero"><p class="eyebrow">'+esc(labels['public.home'])+'</p><h1>'+esc(labels['site.heading'])+'</h1><p>'+esc(labels['public.description'])+'</p></section><section class="public-grid '+('public-list' if theme['public_layout']=='list' else '')+'">'
     for r in rows:
      media=c.execute('SELECT m.id,m.alt FROM media m JOIN media_references mr ON mr.media_id=m.id WHERE mr.entry_id=? ORDER BY m.id LIMIT 1',(r['id'],)).fetchone()
      image='<img src="/media?id='+str(media['id'])+'" alt="'+esc(media['alt'])+'" loading="lazy">' if media else ''
      body+='<article class="public-card">'+image+'<h2><a href="/p/'+esc(r['slug'])+'">'+esc(r['title'])+'</a></h2><p>'+esc(r['body'][:220])+'</p></article>'
     if not rows: body+='<p>'+esc(labels['public.empty'])+'</p>'
     body+='</section>'
+    if news:
+     body+='<section class="public-news"><div class="panel-title"><h2>'+esc(labels['news.title'])+'</h2><a href="/news">'+esc(labels['news.all'])+'</a></div><div class="public-grid '+('public-list' if theme['public_layout']=='list' else '')+'">'
+     for item in news: body+=self.news_card(item,labels)
+     body+='</div></section>'
     description=labels['public.description']; canonical='/'
+   elif path=='/news':
+    title=labels['news.title']+' · '+title; description=labels['news.description']; canonical='/news'
+    body='<section class="public-hero"><p class="eyebrow">'+esc(labels['public.home'])+'</p><h1>'+esc(labels['news.title'])+'</h1><p>'+esc(description)+'</p></section><section class="public-grid '+('public-list' if theme['public_layout']=='list' else '')+'">'
+    for item in news: body+=self.news_card(item,labels)
+    if not news: body+='<p>'+esc(labels['news.empty'])+'</p>'
+    body+='</section>'
+   elif path.startswith('/news/'):
+    try: item=server.public_news(c,int(path[6:]))
+    except (ValueError,server.Fault): item=None
+    canonical=path
+    if item:
+     title=item['title']+' · '+title; description=item['body'][:155]
+     stamp=item['published_at'] or item['posted_at']; date_label=labels['news.published'] if item['published_at'] else labels['news.posted']
+     body='<article class="public-article"><p class="eyebrow">'+esc(labels['news.title'])+'</p><h1>'+esc(item['title'])+'</h1><time class="public-date" datetime="'+esc(stamp)+'">'+esc(date_label)+' '+esc(self.news_date(stamp))+'</time><div class="prose">'+esc(item['body'])+'</div></article>'
+    else: status=404; description=labels['not.found']; body='<h1>'+esc(labels['not.found'])+'</h1>'
    else:
     row=c.execute("SELECT * FROM entries WHERE slug=? AND status='published'",(path[3:],)).fetchone()
     if not row: body='<h1>'+esc(labels['not.found'])+'</h1>'; status=404; description=labels['not.found']; canonical=path
@@ -117,8 +144,17 @@ class Handler(BaseHTTPRequestHandler):
      for media in c.execute('SELECT m.* FROM media m JOIN media_references r ON r.media_id=m.id WHERE r.entry_id=?',(row['id'],)): body+='<img class="public-image" src="/media?id='+str(media['id'])+'" alt="'+esc(media['alt'])+'">'
      body+='</article>'
    origin=os.getenv('CMS_ORIGIN','')
-   document='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title><meta name="description" content="'+esc(description)+'"><link rel="canonical" href="'+esc(origin+canonical)+'"><link rel="stylesheet" href="/assets/app.css"></head><body class="public-site"><header class="public-header"><a class="public-brand" href="/">'+esc(labels['site.heading'])+'</a><a class="public-login" href="/admin">'+esc(labels['login.title'])+'</a></header><main class="public-main">'+body+'</main></body></html>'
+   news_link='<a href="/news">'+esc(labels['news.title'])+'</a>' if server.value(c,'settings','public.news_category') and server.value(c,'flags','forum.enabled') else ''
+   document='<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+'</title><meta name="description" content="'+esc(description)+'"><link rel="canonical" href="'+esc(origin+canonical)+'"><link rel="stylesheet" href="/assets/app.css"><link rel="stylesheet" href="/assets/theme.css"></head><body class="public-site"><header class="public-header"><a class="public-brand" href="/">'+esc(labels['site.heading'])+'</a><nav aria-label="'+esc(labels['public.navigation'])+'">'+news_link+'<a class="public-login" href="/admin">'+esc(labels['login.title'])+'</a></nav></header><main class="public-main">'+body+'</main></body></html>'
    self.send(status,document,'text/html; charset=utf-8')
+ @staticmethod
+ def news_date(stamp):
+  from datetime import datetime
+  return datetime.fromisoformat(stamp).strftime('%d %b %Y') if stamp else ''
+ def news_card(self,item,labels):
+  esc=html.escape
+  stamp=item['published_at'] or item['posted_at']; date_label=labels['news.published'] if item['published_at'] else labels['news.posted']
+  return '<article class="public-card"><time class="public-date" datetime="'+esc(stamp)+'">'+esc(date_label)+' '+esc(self.news_date(stamp))+'</time><h2><a href="/news/'+str(item['id'])+'">'+esc(item['title'])+'</a></h2><p>'+esc(item['body'][:220])+'</p></article>'
  def do_GET(self): self.dispatch()
  def do_POST(self): self.dispatch()
 def make_server(host='127.0.0.1',port=8765): return ThreadingHTTPServer((host,port),Handler)

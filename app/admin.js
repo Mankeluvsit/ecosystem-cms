@@ -2,6 +2,7 @@
 // Buildless UI: registered labels, same-origin requests, no credentials in storage.
 let L = {}, S = {}, me = null, csrf = '', busy = false, dirty = false;
 let renderId = 0, fieldId = 0, category = 'settings', selectedRoom = 1, acceptedHash = location.hash;
+let appliedTokens = [];
 const $ = id => document.getElementById(id);
 const t = key => L[key] ?? key;
 const can = action => me?.permissions.includes(action) ?? false;
@@ -104,6 +105,11 @@ async function req(path, data) {
   if (!response.ok) throw Object.assign(new Error(result.error), { code: result.error, status: response.status });
   return result;
 }
+function applyTheme(tokens) {
+  for (const key of appliedTokens) document.documentElement.style.removeProperty(key);
+  appliedTokens = Object.keys(tokens ?? {});
+  for (const [key, value] of Object.entries(tokens ?? {})) document.documentElement.style.setProperty(key, value);
+}
 function feedback(text, failed = false) {
   $('operation-status').hidden = false; $('operation-status').classList.toggle('error', failed);
   $('feedback').replaceChildren(el('div', { class: 'feedback-row' }, icon(failed ? 'warning' : busy ? 'clock' : 'check'), el('span', { text }), btn('studio.close', () => { $('operation-status').hidden = true; }, { icon: 'close', iconOnly: true, quiet: true })));
@@ -171,7 +177,8 @@ function form(fields, key, callback, action = null, options = {}) {
   const f = el('form', { class: options.class ?? '' }, fields, el('div', { class: 'form-error', role: 'alert', tabindex: '-1' }));
   const submit = el('button', { type: 'submit', class: 'btn btn-primary' }, options.icon ? icon(options.icon) : null, t(key));
   if (action && !can(action)) submit.disabled = true;
-  f.append(el('div', { class: 'form-actions' }, options.cancel === false ? null : btn('cancel', () => $('inspector').close()), submit), action && !can(action) ? el('p', { class: 'disabled-reason', text: t('no.access') }) : null);
+  f.append(el('div', { class: 'form-actions' }, options.cancel === false ? null : btn('cancel', () => $('inspector').close()), submit));
+  if(action&&!can(action))f.append(el('p',{class:'disabled-reason',text:t('no.access')}));
   let submitting = false;
   f.addEventListener('submit', async event => {
     event.preventDefault(); if (busy || submitting) return;
@@ -218,7 +225,7 @@ function chrome() {
   $('brand').querySelector('a').addEventListener('click', event => { event.preventDefault(); go('overview'); });
   $('nav').setAttribute('aria-label', t('studio.menu')); $('nav').replaceChildren(...navItems().filter(Boolean));
   $('sidebar-footer').className = 'sidebar-bottom';
-  $('sidebar-footer').replaceChildren(me ? el('div', { class: 'account' }, avatar(me.user.email), el('div', { class: 'account-copy' }, el('strong', { text: me.user.email }), el('small', { text: t('role.' + me.user.role) }))) : null, me ? el('a', { href: '#logout', class: 'nav-item', onclick: event => { event.preventDefault(); signOut(); } }, icon('logout'), t('logout')) : null);
+  $('sidebar-footer').replaceChildren(...(me?[el('div', { class: 'account' }, avatar(me.user.email), el('div', { class: 'account-copy' }, el('strong', { text: me.user.email }), el('small', { text: t('role.' + me.user.role) }))), el('a', { href: '#logout', class: 'nav-item', onclick: event => { event.preventDefault(); signOut(); } }, icon('logout'), t('logout'))]:[]));
   const view = route()[0] ?? 'overview';
   $('header').replaceChildren(el('div', { class: 'breadcrumb' }, me ? btn('studio.menu', mobileMenu, { icon: 'menu', iconOnly: true, quiet: true }) : icon('leaf'), el('span', { text: t('studio.workspace') }), me ? icon('chevron') : null, el('strong', { text: me ? t(views[view]?.[0] ?? 'studio.name') : t('studio.name') })), el('div', { class: 'topbar-actions' }, anchor('public.link', '/', 'external'), me ? avatar(me.user.email) : null));
   const menu = $('header').querySelector('.icon-button'); if (menu) menu.classList.add('menu-toggle');
@@ -248,7 +255,7 @@ async function load() {
   const id = ++renderId; const main = $('main'); main.setAttribute('aria-busy', 'true');
   let indicator = loading(); main.append(indicator);
   try {
-    const boot = await req('/api/public/bootstrap'); L = boot.labels;
+    const boot = await req('/api/public/bootstrap'); L = boot.labels; applyTheme(boot.theme_tokens);
     me = await req('/api/me'); csrf = me.csrf;
     if (can('config.read')) S = await req('/api/state'); else S = {};
     let parts = route(), view = parts[0] ?? 'overview';
@@ -298,7 +305,7 @@ async function overview() {
   if (!left.childElementCount) left.append(panel('studio.welcome', el('p', { class: 'muted', text: t('studio.overview.description') })));
   const right = el('div', { class: 'stack' });
   if (can('content.write')) right.append(el('div', { class: 'welcome-note' }, icon('leaf'), el('div', {}, el('h3', { text: t('studio.welcome') }), el('p', { text: t('studio.welcome.description') }))));
-  if (can('audit.read')) right.append(panel('studio.activity', events.length ? events.slice(0, 6).map(event => el('div', { class: 'activity-item' }, el('span', { class: 'activity-dot' }, icon('audit')), el('div', { class: 'activity-copy' }, el('p', { text: event.reason }), el('small', { text: t('audit.actor') + ' ' + event.actor + ' · ' + date(event.created_at) })))) : empty('studio.no.activity', null, 'audit'), btn('studio.view.all', () => go('audit'), { quiet: true, icon: 'arrow' })));
+  if (can('audit.read')) right.append(panel('studio.activity', events.length ? events.slice(0, 6).map(event => el('div', { class: 'activity-item' }, el('span', { class: 'activity-dot' }, icon('audit')), el('div', { class: 'activity-copy' }, el('p', { text: eventSummary(event) }), el('small', { text: actorName(event.actor) + ' · ' + date(event.created_at) })))) : empty('studio.no.activity', null, 'audit'), btn('studio.view.all', () => go('audit'), { quiet: true, icon: 'arrow' })));
   page.append(el('div', { class: 'dashboard-grid' }, left, right)); return page;
 }
 function entryLink(entry) {
@@ -527,10 +534,12 @@ async function chat(roomId) {
   const roomList = el('div', { class: 'room-list' }, rooms.map(r => el('button', { class: 'category-button', type: 'button', 'aria-pressed': String(r.id === selectedRoom), onclick: () => go('chat/' + r.id) }, icon('chat'), r.name)));
   const timeline = el('div', { class: 'message-list', tabindex: '0', 'aria-label': t('chat.title') });
   function appendMessage(m) {
-    timeline.append(el('article', { class: 'message-row' }, avatar(m.email), el('div', { class: 'message-copy' }, el('span', { class: 'message-author', text: m.email }), el('time', { class: 'message-time', text: date(m.created_at) }), el('div', { class: 'message-body', text: m.body })), can('chat.manage') ? btn('chat.delete', async () => {
+    const row=el('article', { class: 'message-row' }, avatar(m.email), el('div', { class: 'message-copy' }, el('span', { class: 'message-author', text: m.email }), el('time', { class: 'message-time', text: date(m.created_at) }), el('div', { class: 'message-body', text: m.body })));
+    if(can('chat.manage'))row.append(btn('chat.delete', async () => {
       if (!await confirm('chat.delete', 'studio.confirm.delete', m.body.slice(0, 120))) return;
       await mutate('/api/chat/delete', { id: m.id }); await load();
-    }, { danger: true, icon: 'close', iconOnly: true }) : null));
+    }, { danger: true, icon: 'close', iconOnly: true }));
+    timeline.append(row);
   }
   if (messages.length) messages.forEach(appendMessage); else timeline.append(empty('studio.no.messages', null, 'chat'));
   const chatHeader = el('div', { class: 'chat-heading' }, el('div', {}, el('h2', { text: room.name }), el('p', { class: 'presence', text: t('studio.presence') + ': ' + presence.map(p => p.email).join(', ') })), btn('refresh', reloadView, { icon: 'refresh', quiet: true }));
@@ -553,22 +562,97 @@ async function config() {
   const page = el('div', {}, header('config.title', 'studio.settings.description'));
   const nav = el('nav', { class: 'settings-nav', 'aria-label': t('studio.settings') });
   const results = el('div'); let toolbar;
-  const catLabels = { settings: 'studio.general', flags: 'studio.features', labels: 'studio.labels', permissions: 'studio.permissions' };
-  function draw() {
-    const query = values(toolbar).search.toLowerCase(); const controls = Object.entries(S[category]).filter(([key, item]) => (key + ' ' + (category === 'labels' ? item.value : t(registry.settings[key]?.label ?? key))).toLowerCase().includes(query));
+  const catLabels = { settings: 'studio.general', theme: 'theme.title', news: 'news.settings', flags: 'studio.features', labels: 'studio.labels', permissions: 'studio.permissions' };
+  async function draw() {
+    const drawCategory=category;
+    if (['theme','news'].includes(category)) {
+      toolbar.hidden = true;
+      results.replaceChildren(loading());
+      try { const page = drawCategory === 'theme' ? await appearance() : await newsSettings(); if (category === drawCategory) results.replaceChildren(page); }
+      catch (error) { results.replaceChildren(empty('error', btn('retry', draw))); report(error); }
+    } else {
+    toolbar.hidden = false;
+    const query = values(toolbar).search.toLowerCase(); const controls = Object.entries(S[category]).filter(([key, item]) => !['appearance.theme','public.news_category','public.news_limit'].includes(key) && (key + ' ' + (category === 'labels' ? item.value : t(registry.settings[key]?.label ?? key))).toLowerCase().includes(query));
     results.replaceChildren(controls.length ? el('div', { class: 'collection' }, controls.map(([key, item]) => {
       const name = category === 'settings' ? t(registry.settings[key].label) : category === 'permissions' ? t('role.' + key) : category === 'flags' ? t(key) : key;
       return el('div', { class: 'setting-row' }, el('div', { class: 'setting-copy' }, el('strong', { text: name }), el('code', { text: key }), el('p', { class: 'setting-value', text: category === 'permissions' ? t('studio.permissions.count') + ': ' + item.value.length : category === 'flags' ? t(item.value ? 'enabled' : 'disabled') : String(item.value) }), el('small', { class: 'record-meta', text: t('config.version') + ' ' + item.version + (category === 'settings' ? ' · ' + t(registry.settings[key].restart ? 'studio.restart' : 'studio.runtime') : '') })), btn('studio.edit', () => controlDialog(category, key, item, registry), { icon: 'edit', action: category === 'permissions' ? 'auth.permissions.write' : 'config.write' }));
     })) : empty('studio.no.results.description', null, 'settings', 'studio.no.results'));
+    }
     for (const b of nav.children) b.setAttribute('aria-pressed', String(b.dataset.category === category));
   }
-  for (const [cat, label] of Object.entries(catLabels)) nav.append(el('button', { type: 'button', class: 'category-button', 'data-category': cat, onclick: () => { category = cat; draw(); } }, t(label)));
+  for (const [cat, label] of Object.entries(catLabels)) nav.append(el('button', { type: 'button', class: 'category-button', 'data-category': cat, onclick: async () => {
+    if(busy)return;
+    if(dirty){if(!await confirm('studio.discard.title','studio.discard.body'))return;dirty=false;const boot=await req('/api/public/bootstrap');applyTheme(boot.theme_tokens);}
+    category = cat; draw();
+  } }, t(label)));
   toolbar = searchBar(draw); page.append(el('div', { class: 'settings-layout' }, nav, el('div', {}, toolbar, results))); draw(); return page;
+}
+async function appearance() {
+  const contract = await req('/api/theme/contract'), item = S.settings['appearance.theme'];
+  const initial = structuredClone(item.value); let choice = initial.preset;
+  const colors = Object.keys(initial.colors).map(key => field('theme.' + key, 'color:' + key, 'color', initial.colors[key]));
+  const fonts = contract.fonts.map(key => ({ value:key, label:t('theme.font.' + key) }));
+  const presets = field('theme.preset','preset','select',choice,{choices:[...Object.keys(contract.presets), 'custom'].map(key=>({value:key,label:t('theme.'+key)}))});
+  const preview = el('div',{class:'theme-preview'},el('p',{class:'eyebrow',text:t('theme.preview.title')}),el('h2',{text:t('theme.preview.draft')}),el('p',{text:t('theme.preview.body')}),el('div',{class:'actions'},el('span',{class:'theme-button-example',text:t('theme.preview.button')}),el('span',{class:'theme-link-example',text:t('theme.preview.link')})));
+  const info=el('div',{class:'notice',hidden:true,text:t('theme.preview.notice')});
+  function payload(f) {
+    const v=values(f), palette={}; for(const [key,value] of Object.entries(v)) if(key.startsWith('color:')) palette[key.slice(6)]=value;
+    return {schema_version:1,preset:choice,colors:palette,admin_font:v.admin_font,public_font:v.public_font,density:v.density,radius:v.radius,public_layout:v.public_layout,design_notes:v.design_notes};
+  }
+  async function previewValue(f) {
+    const result=await req('/api/theme/preview',{theme:payload(f)}); applyTheme(result.tokens); info.hidden=false;
+  }
+  const f=form([el('h2',{text:t('theme.title')}),el('p',{class:'description',text:t('theme.description')}),el('p',{class:'field-hint',text:t('theme.validation')}),presets,el('div',{class:'theme-colors'},colors),el('div',{class:'form-grid'},field('theme.admin_font','admin_font','select',initial.admin_font,{choices:fonts}),field('theme.public_font','public_font','select',initial.public_font,{choices:fonts}),field('theme.density','density','select',initial.density,{choices:['comfortable','compact'].map(x=>({value:x,label:t('theme.'+x)}))}),field('theme.radius','radius','number',initial.radius,{min:0,max:20,required:true}),field('theme.layout','public_layout','select',initial.public_layout,{choices:['cards','list'].map(x=>({value:x,label:t('theme.'+x)}))})),field('theme.notes','design_notes','textarea',initial.design_notes,{maxlength:2000,hint:'theme.notes.hint'}),info,preview,field('config.reason','reason','text',t('theme.change.reason'),{required:true,maxlength:500})], 'theme.save',async v=>{
+    await mutate('/api/change',{category:'settings',key:'appearance.theme',value:payload(f),reason:v.reason,expected_version:item.version},'theme.success');
+    dirty=false; await load();
+  },'config.write',{class:'panel appearance-form',cancel:false});
+  const setInputs=(theme)=>{
+    choice=theme.preset;
+    for(const input of f.querySelectorAll('[name]')) {
+      const name=input.name; if(name==='reason') continue;
+      input.value=name.startsWith('color:') ? theme.colors[name.slice(6)] : theme[name];
+    }
+    dirty=true;
+  };
+  presets.querySelector('select').addEventListener('change',()=>{
+    choice=presets.querySelector('select').value;
+    if(contract.presets[choice]) for(const input of f.querySelectorAll('[name^="color:"]')) input.value=contract.presets[choice][input.name.slice(6)];
+    dirty=true;
+  });
+  for(const input of f.querySelectorAll('[type=color]')) input.addEventListener('input',()=>{choice='custom';presets.querySelector('select').value='custom';});
+  f.addEventListener('input',()=>{dirty=true;});
+  const tools=el('div',{class:'actions theme-tools'},btn('theme.preview',()=>previewValue(f),{action:'config.write',icon:'media'}),btn('theme.discard',async()=>{setInputs(initial);dirty=false;const boot=await req('/api/public/bootstrap');applyTheme(boot.theme_tokens);info.hidden=true;},{icon:'back'}),btn('theme.reset',async()=>{setInputs(structuredClone(contract.default));await previewValue(f);},{action:'config.write'}),btn('theme.export',()=>{
+    const blob=new Blob([JSON.stringify(payload(f),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
+    const a=el('a',{href:url,download:'ecosystem-theme.json'});a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  },{icon:'external'}),btn('theme.import',()=>{
+    openDialog('theme.import',form([el('p',{class:'field-hint',text:t('theme.import.hint')}),field('theme.import.file','file','file','',{required:true,accept:'.json,application/json'})],'theme.preview',async(v,importForm)=>{
+      const file=importForm.querySelector('[type=file]').files[0]; if(!file||file.size>16000) throw {code:'INVALID_THEME'};
+      let theme;try{theme=JSON.parse(await file.text());}catch{throw {code:'INVALID_THEME'};}
+      const checked=await req('/api/theme/preview',{theme});setInputs(theme);applyTheme(checked.tokens);info.hidden=false;$('inspector').close();
+    },'config.write'));
+  },{action:'config.write',icon:'upload'}),btn('theme.contract',()=>openDialog('theme.contract',el('div',{},el('p',{text:t('theme.contract.description')}),el('pre',{class:'contract-data',text:JSON.stringify(contract,null,2)})),true),{icon:'content'}));
+  f.insertBefore(tools,f.querySelector('.form-actions')); return f;
+}
+async function newsSettings() {
+  if(!can('forum.read')) return empty('no.access',null,'forum');
+  const options=await req('/api/publication/options'), categoryItem=S.settings['public.news_category'],limitItem=S.settings['public.news_limit'];
+  const choose=field('news.category','news_category','select',categoryItem.value,{choices:[{value:0,label:t('news.disabled')},...options.categories.map(c=>({value:c.id,label:c.name}))]});
+  const count=el('p',{class:'field-hint'});
+  function updateCount(){const selected=Number(choose.querySelector('select').value);count.textContent=t('news.approved.count')+': '+(options.categories.find(c=>c.id===selected)?.approved_count??0);}
+  choose.querySelector('select').addEventListener('change',updateCount);updateCount();
+  const f=form([el('h2',{text:t('news.settings')}),el('p',{class:'description',text:t('news.settings.description')}),el('div',{class:'notice warning'},icon('warning'),t('news.warning')),options.forum_enabled?null:el('p',{class:'notice warning',text:t('news.forum.off')}),choose,count,can('forum.moderate')&&options.forum_enabled?btn('news.create',()=>nameDialog('news.create','forum.category','/api/forum/categories','forum.moderate'),{icon:'plus'}):null,field('news.limit','news_limit','number',limitItem.value,{min:1,max:30,required:true}),field('config.reason','reason','text','',{required:true,maxlength:500})],'news.save',async v=>{
+    const chosen=Number(v.news_category);
+    if(chosen!==categoryItem.value&&!await confirm('news.confirm','news.warning',options.categories.find(c=>c.id===chosen)?.name??t('news.disabled')))return;
+    await mutate('/api/news/settings',{category_id:chosen,limit:v.news_limit,reason:v.reason,expected_category_version:categoryItem.version,expected_limit_version:limitItem.version},'news.success');
+    dirty=false;await load();
+  },'config.write',{class:'panel',cancel:false});
+  f.addEventListener('input',()=>{dirty=true;});
+  f.append(el('div',{class:'form-actions'},anchor('news.view','/news','external','btn')));return f;
 }
 function scopePicker(actions, checked) {
   const groups = {};
   for (const action of actions) (groups[action.split('.')[0]] ??= []).push(action);
-  return el('div', {}, Object.entries(groups).map(([group, items]) => el('fieldset', { class: 'permission-group' }, el('legend', { text: group }), el('div', { class: 'scope-grid' }, items.map(action => field(action, 'scope:' + action, 'checkbox', checked.includes(action), { literal: action }))))));
+  return el('div', {}, Object.entries(groups).map(([group, items]) => el('fieldset', { class: 'permission-group' }, el('legend', { text: t('module.'+group) }), el('div', { class: 'scope-grid' }, items.map(action => field('action.'+action, 'scope:' + action, 'checkbox', checked.includes(action)))))));
 }
 function controlDialog(cat, key, item, registry) {
   const meta = registry.settings[key]; const action = cat === 'permissions' ? 'auth.permissions.write' : 'config.write';
@@ -620,16 +704,36 @@ function keyDialog() {
 async function audit() {
   const events = await req('/api/audit'); const results = el('div'); let toolbar;
   function draw() {
-    const query = values(toolbar).search.toLowerCase(); const matches = events.filter(e => (e.actor + ' ' + e.category + ' ' + e.key + ' ' + e.reason).toLowerCase().includes(query));
-    results.replaceChildren(events.length ? table(['audit.operation', 'audit.actor', 'audit.time', 'studio.action'], matches.map(e => [el('div', {}, el('strong', { text: e.reason }), el('small', { class: 'record-meta', text: e.category + ' · ' + e.key })), e.actor, date(e.created_at), btn('studio.open', () => auditDialog(e), { icon: 'arrow', quiet: true })])) : empty('studio.no.activity', null, 'audit'));
+    const query = values(toolbar).search.toLowerCase(); const matches = events.filter(e => (e.actor + ' ' + actorName(e.actor) + ' ' + e.category + ' ' + e.key + ' ' + e.reason + ' ' + eventSummary(e)).toLowerCase().includes(query));
+    results.replaceChildren(events.length ? table(['audit.operation', 'audit.actor', 'audit.time', 'studio.action'], matches.map(e => [el('div', {}, el('strong', { text: eventSummary(e) }), el('small', { class: 'record-meta', text: e.category + ' · ' + e.key })), actorName(e.actor), date(e.created_at), btn('studio.open', () => auditDialog(e), { icon: 'arrow', quiet: true })])) : empty('studio.no.activity', null, 'audit'));
   }
   toolbar = searchBar(draw); const page = el('div', {}, header('audit.title', 'studio.audit.description'), el('p', { class: 'field-hint', text: t('studio.audit.window') }), toolbar, results); draw(); return page;
+}
+function actorName(actor){return actor==='system'?t('audit.system'):actor==='bootstrap'?t('audit.bootstrap'):String(actor)===String(me?.user.id)?me.user.email:t('audit.member')+' #'+actor;}
+function eventSummary(event){
+  const phrases={entry_create:'audit.entry_create',entry_update:'audit.entry_update','workflow transition':'audit.workflow',
+    'type created':'audit.type_create','session created':'audit.session.created','session revoked':'audit.session.revoked','user created':'audit.user.created',
+    'access updated':'audit.access.updated','image uploaded':'audit.image.uploaded','transformed copy created':'audit.image.transformed','asset deleted':'audit.asset.deleted',
+    'category created':'audit.category.created','thread created':'audit.thread.created','reply created':'audit.reply.created','message sent':'audit.message.sent',
+    'key created':'audit.key.created','key revoked':'audit.key.revoked','moderation':'audit.moderation','retention applied':'audit.retention'};
+  return phrases[event.reason]?t(phrases[event.reason]):event.reason.startsWith('undo:')?t('config.undo'):event.reason;
+}
+function readableValue(value,level=0){
+  if(value==null)return t('audit.notset');
+  if(typeof value==='boolean')return t(value?'audit.yes':'audit.no');
+  if(Array.isArray(value))return value.length?value.map(v=>readableValue(v,level+1)).join(', '):t('audit.none.selected');
+  if(typeof value==='object')return Object.entries(value).map(([key,val])=>'  '.repeat(level)+(L['audit.field.'+key]??L['theme.'+key]??L['content.'+key]??key.replaceAll('_',' '))+': '+readableValue(val,level+1)).join('\n')||t('audit.no.details');
+  return String(value);
+}
+function auditValue(raw,label){
+  if(raw==null)return t(label==='audit.before'?'audit.empty.before':'audit.empty.after');
+  try{const value=JSON.parse(raw);return value===null?t(label==='audit.before'?'audit.empty.before':'audit.empty.after'):readableValue(value);}catch{return t('audit.unknown');}
 }
 function auditDialog(event) {
   const current = S[event.category]?.[event.key];
   const supported = ['settings', 'flags', 'labels', 'permissions'].includes(event.category);
   const allowed = can('config.write') && (event.category !== 'permissions' || can('auth.permissions.write'));
-  const body = el('div', {}, el('p', { class: 'muted', text: t('audit.actor') + ': ' + event.actor + ' · ' + date(event.created_at) }), el('p', { text: event.reason }), el('p', { class: 'field-hint', text: t('studio.audit.target') + ': ' + event.category + '.' + event.key }), el('div', { class: 'diff-grid' }, ...[['audit.before', event.old_value], ['audit.after', event.new_value]].map(([label, raw]) => el('div', {}, el('h3', { text: t(label) }), el('pre', { text: JSON.stringify(JSON.parse(raw), null, 2) })))));
+  const body = el('div', {}, el('p', { class: 'muted', text: t('audit.actor') + ': ' + actorName(event.actor) + ' · ' + date(event.created_at) }), el('p', { text: eventSummary(event) }), el('p', { class: 'field-hint', text: t('studio.audit.target') + ': ' + event.category + '.' + event.key }), el('div', { class: 'diff-grid' }, ...[['audit.before', event.old_value], ['audit.after', event.new_value]].map(([label, raw]) => el('div', {}, el('h3', { text: t(label) }), el('pre', { text: auditValue(raw,label) })))));
   body.append(el('div', { class: 'form-actions' }, btn('config.undo', async () => {
     if (!await confirm('config.undo', 'studio.confirm.undo', event.category + '.' + event.key)) return;
     await mutate('/api/undo', { audit_id: event.id, expected_version: event.new_version }, 'studio.success.undo'); await done();
@@ -640,7 +744,7 @@ function auditDialog(event) {
 (async () => {
   $('main').replaceChildren(loading());
   try {
-    const boot = await req('/api/public/bootstrap'); L = boot.labels;
+    const boot = await req('/api/public/bootstrap'); L = boot.labels; applyTheme(boot.theme_tokens);
     try { me = await req('/api/me'); csrf = me.csrf; } catch (error) { if (error.status !== 401) throw error; }
     chrome(); if (me) await load(); else loginView();
   } catch (error) { report(error); $('main').replaceChildren(empty('error', btn('retry', () => location.reload(), { icon: 'refresh' }), 'warning')); }

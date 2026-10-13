@@ -15,15 +15,15 @@ Two supporting server corrections were needed: dashboard counts now honor the un
 | Area | Status | Evidence |
 |---|---|---|
 | Existing control regression | TESTED_PASS | Five baseline tests in `tests/test_control.py` |
-| HTTP module/security integration | TESTED_PASS | Five integration cases in `tests/test_integration.py`; all ten tests pass together |
+| HTTP module/security integration | TESTED_PASS | Eight integration cases in `tests/test_integration.py`; all thirteen tests pass together |
 | Redesign workflows | TESTED_PASS | `scripts/verify_ui.py`: login, typed fields, references, publishing, scheduling, uploads, moderation, chat, users, scopes, labels/flags, and audit undo |
 | Failure feedback | TESTED_PASS | Injected 409 save conflict and 403 message failure preserve input and expose failed/blocked steps |
 | Responsive screens | TESTED_PASS | Nine module screens plus editor checked at 320, 390, 768, 1024, and 1440 CSS pixels with no page overflow; mobile scope picker also fits |
-| Accessibility automation | TESTED_PASS | 21 axe-core A/AA-tagged scans with zero reported violations; recorded results in `evidence/ui/accessibility.json` |
+| Accessibility automation | TESTED_PASS | 24 axe-core A/AA-tagged scans with zero reported violations; recorded results in `evidence/ui/accessibility.json` |
 | Dialog keyboard behavior | TESTED_PASS | Menu and upload-inspector Escape/focus restoration exercised in Chromium |
 | Zoom and reduced motion | TESTED_PASS | Overview at 200% CSS zoom and reduced-motion media emulation |
 | Syntax | TESTED_PASS | Python compilation and `node --check app/admin.js` |
-| CI workflow execution | TESTED_PASS | [Run 38324370845](https://github.com/Mankeluvsit/ecosystem-cms/actions/runs/38324370845) passed all checks for source commit `38acf43da9093f7afb9f88700350d7f0103928fe` |
+| CI workflow execution | IMPLEMENTED_UNVERIFIED | Original redesign run passed; theme/news follow-up awaiting CI |
 | Manual screen-reader assessment | NOT_STARTED | Automated results do not establish full WCAG conformance |
 | Native Android/Termux browser test | NOT_STARTED | Tested in desktop Chromium with mobile viewport sizes |
 | Public deployment | BLOCKED | No hosting provider credential is configured; this source update does not create a deployment |
@@ -50,3 +50,5 @@ CMS_AXE_PATH=/tmp/ecosystem-axe.min.js python scripts/verify_ui.py
 Content and people filters operate on loaded records. Audit filters cover the latest 200 events; chat shows the latest 100 retained messages and uses explicit refresh. Autosave, rich text, realtime chat, and bulk publishing are outside this iteration. Published entries retain the existing restore/archive workflow instead of promising separate simultaneous draft and published versions.
 
 The plan's remaining scalability work is server pagination and broader search. Cross-browser, native mobile, and manual assistive-technology verification remain outstanding. The complete CMS is not declared production-ready by this UI report.
+
+See [THEMES-AND-PUBLIC-NEWS.md](THEMES-AND-PUBLIC-NEWS.md) for the theme system, simpler wording, null-footer correction, public news integration, exact contracts, and proposed enhancements.

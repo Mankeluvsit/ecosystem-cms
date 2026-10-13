@@ -4,9 +4,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import contextmanager
 try:
- from .registry import SETTINGS, FLAGS, LABELS, ACTIONS, ROLES
+ from .registry import SETTINGS, FLAGS, LABELS, ACTIONS, ROLES, LABEL_REFINEMENTS
 except ImportError:
- from registry import SETTINGS, FLAGS, LABELS, ACTIONS, ROLES
+ from registry import SETTINGS, FLAGS, LABELS, ACTIONS, ROLES, LABEL_REFINEMENTS
+try:
+ from . import themes
+except ImportError:
+ import themes
 DB = os.getenv('CMS_DB', 'cms.sqlite3')
 LOCK = threading.RLock()
 class Fault(ValueError):
@@ -37,6 +41,12 @@ def init():
   c.execute('INSERT OR IGNORE INTO content_types VALUES(?,?,0)',('page','{}'))
   c.execute('INSERT OR IGNORE INTO categories(id,name) VALUES(1,?)',('General',))
   c.execute('INSERT OR IGNORE INTO rooms(id,name) VALUES(1,?)',('General',))
+  if not c.execute("SELECT 1 FROM schema_migrations WHERE version='003_readable_labels'").fetchone():
+   for key,(old,new) in LABEL_REFINEMENTS.items():
+    row=c.execute("SELECT * FROM controls WHERE category='labels' AND key=?",(key,)).fetchone()
+    if row and row['version']==0 and json.loads(row['value'])==old:
+     _change(c,'system','labels',key,new,'updated interface wording',0)
+   c.execute('INSERT INTO schema_migrations VALUES(?,?)',('003_readable_labels',now()))
 def record(c, actor, category, key, old, new, reason, old_version=None, new_version=None):
  return c.execute('INSERT INTO audit(actor,category,key,old_value,new_value,old_version,new_version,reason) VALUES(?,?,?,?,?,?,?,?)', (str(actor),category,str(key),json.dumps(old),json.dumps(new),old_version,new_version,reason)).lastrowid
 def get_state(c=None):
@@ -65,7 +75,12 @@ def validate_control(category,key,v):
  if key not in registries[category]: fail('UNDECLARED_CONTROL')
  if category=='settings':
   meta=SETTINGS[key]; limits=meta['validate']
-  if meta['kind']=='number': integer(v,limits['min'],limits['max'])
+  if key=='appearance.theme':
+   try: themes.validate(v)
+   except (ValueError,TypeError) as error:
+    code=str(error)
+    fail(code if code in ('INVALID_THEME','THEME_LIGHT_SURFACES_REQUIRED','THEME_CONTRAST_TOO_LOW') else 'INVALID_THEME')
+  elif meta['kind']=='number': integer(v,limits['min'],limits['max'])
   else: text(v,limits['min'],limits['max'])
  elif category=='flags':
   if type(v)!=bool: fail('INVALID_VALUE')
@@ -75,6 +90,7 @@ def validate_control(category,key,v):
   if key=='admin' and not {'auth.permissions.write','auth.users.write','auth.session','config.read','config.write','admin.read'}.issubset(v): fail('ADMIN_RECOVERY_PERMISSIONS_REQUIRED')
 def _change(c,actor,category,key,v,reason,expected_version):
  validate_control(category,key,v); text(reason,1,500)
+ if category=='settings' and key=='public.news_category' and v and not c.execute('SELECT 1 FROM categories WHERE id=?',(v,)).fetchone(): fail('NEWS_CATEGORY_NOT_FOUND')
  row=c.execute('SELECT * FROM controls WHERE category=? AND key=?',(category,key)).fetchone(); version(row,expected_version)
  new_version=expected_version+1
  c.execute('UPDATE controls SET value=?,version=? WHERE category=? AND key=?',(json.dumps(v),new_version,category,key))
@@ -202,10 +218,44 @@ def media_image(raw):
  except (UnidentifiedImageError,OSError,ValueError,Image.DecompressionBombError) as e:
   if isinstance(e,Fault): raise
   fail('INVALID_IMAGE')
+def public_news(c,id=None):
+ """Only approved top-level posts from the explicitly selected public category."""
+ category=value(c,'settings','public.news_category')
+ if not category or not value(c,'flags','forum.enabled'):
+  if id is not None: fail('NOT_FOUND',404)
+  return []
+ columns='t.id,t.title,t.body,t.published_at,t.created_at AS posted_at,c.name AS category'
+ sql="SELECT "+columns+" FROM threads t JOIN categories c ON c.id=t.category_id WHERE t.category_id=? AND t.state='approved'"
+ args=[category]
+ if id is not None: sql+=' AND t.id=?'; args.append(integer(id))
+ sql+=' ORDER BY COALESCE(t.published_at,t.created_at) DESC,t.id DESC'
+ if id is None: sql+=' LIMIT ?'; args.append(value(c,'settings','public.news_limit'))
+ rows=[dict(r) for r in c.execute(sql,args)]
+ if id is not None:
+  if not rows: fail('NOT_FOUND',404)
+  return rows[0]
+ return rows
 def execute(op,user,data,query=None):
  query=query or {}; actor=user['id'] if user else 'anonymous'
  if op=='registry': return {'settings':SETTINGS,'flags':FLAGS,'labels':LABELS,'actions':ACTIONS,'roles':list(ROLES)}
  if op=='state': return get_state()
+ if op=='news_settings':
+  with transaction() as c:
+   category_result=_change(c,actor,'settings','public.news_category',data['category_id'],data['reason'],data['expected_category_version'])
+   limit_result=_change(c,actor,'settings','public.news_limit',data['limit'],data['reason'],data['expected_limit_version'])
+   return {'category':category_result,'limit':limit_result}
+ if op=='publication_options':
+  require(user,'forum.read')
+  with connect() as c:
+   return {'categories':[dict(r) for r in c.execute("SELECT c.id,c.name,(SELECT count(*) FROM threads t WHERE t.category_id=c.id AND t.state='approved') AS approved_count FROM categories c ORDER BY c.name")],
+           'forum_enabled':value(c,'flags','forum.enabled')}
+ if op=='theme_contract':
+  with connect() as c:
+   item=get_state(c)['settings']['appearance.theme']
+   return themes.contract(item['value'],item['version'])
+ if op=='theme_preview':
+  theme=data.get('theme'); validate_control('settings','appearance.theme',theme)
+  return {'tokens':themes.tokens(theme),'theme':themes.public_theme(theme),'persisted':False}
  if op=='change':
   if data.get('category')=='permissions': require(user,'auth.permissions.write')
   return change(actor,data['category'],data['key'],data['value'],data['reason'],data['expected_version'])
@@ -216,7 +266,12 @@ def execute(op,user,data,query=None):
   return undo(actor,data['audit_id'],data['expected_version'])
  if op=='me': return {'user':{k:user[k] for k in ('id','email','role')},'permissions':sorted(permissions(user)),'csrf':user.get('csrf')}
  if op=='public_boot':
-  with connect() as c: return {'labels':{k:v['value'] for k,v in get_state(c)['labels'].items()},'title':value(c,'settings','site.title')}
+  with connect() as c:
+   theme=value(c,'settings','appearance.theme')
+   return {'labels':{k:v['value'] for k,v in get_state(c)['labels'].items()},'title':value(c,'settings','site.title'),'theme':themes.public_theme(theme),'theme_tokens':themes.tokens(theme)}
+ if op in ('public_news','public_news_item'):
+  with connect() as c:
+   return public_news(c,int(query.get('id','0'))) if op=='public_news_item' else public_news(c)
  if op=='health':
   with connect() as c: c.execute('SELECT 1').fetchone()
   return {'status':'ok'}
@@ -353,7 +408,10 @@ def execute(op,user,data,query=None):
    if table not in ('threads','replies'): fail('INVALID_VALUE')
    row=row_for(c,table,data['id']); version(row,data['expected_version']); state=data['state']
    if state not in ('approved','rejected'): fail('INVALID_VALUE')
-   c.execute('UPDATE '+table+' SET state=?,version=version+1 WHERE id=?',(state,row['id']))
+   if table=='threads':
+    published_at=(row['published_at'] or now()) if state=='approved' else None
+    c.execute('UPDATE threads SET state=?,published_at=?,version=version+1 WHERE id=?',(state,published_at,row['id']))
+   else: c.execute('UPDATE replies SET state=?,version=version+1 WHERE id=?',(state,row['id']))
    record(c,actor,'forum',table+':'+str(row['id']),{'state':row['state']},{'state':state},text(data.get('reason','moderation'),1,500)); return {'ok':True}
   if op=='forum_lock':
    row=row_for(c,'threads',data['id']); version(row,data['expected_version']); locked=data['locked']

@@ -12,6 +12,14 @@
     "violations": []
   },
   {
+    "screen": "appearance editor desktop",
+    "violations": []
+  },
+  {
+    "screen": "public news article",
+    "violations": []
+  },
+  {
     "screen": "overview at 390px",
     "violations": []
   },
@@ -45,6 +53,10 @@
   },
   {
     "screen": "audit at 390px",
+    "violations": []
+  },
+  {
+    "screen": "appearance editor mobile",
     "violations": []
   },
   {

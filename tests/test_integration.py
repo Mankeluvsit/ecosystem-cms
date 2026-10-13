@@ -1,5 +1,6 @@
 """HTTP acceptance tests: verify the interface's real server boundaries."""
 import base64
+import copy
 import http.client
 import io
 import json
@@ -7,7 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
-from app import server, web
+from app import server, web, themes
 from PIL import Image
 
 
@@ -128,5 +129,76 @@ class HTTPAcceptance(unittest.TestCase):
         self.assertEqual(self.call('/api/users')[0],403)
         self.assertEqual(self.call('/api/forum/moderation')[0],403)
         self.assertEqual(self.call('/api/change', {'category':'flags','key':'forum.enabled','value':False,'reason':'test','expected_version':0})[0],403)
+
+    def test_theme_validation_preview_save_and_undo(self):
+        manifest=self.call('/api/theme/contract')[1]
+        self.assertEqual(manifest['current'],themes.DEFAULT)
+        theme=copy.deepcopy(themes.DEFAULT);theme['preset']='ocean';theme['colors']=themes.PALETTES['ocean'];theme['public_font']='serif';theme['density']='compact';theme['radius']=4;theme['public_layout']='list';theme['design_notes']='Private styling instructions'
+        preview=self.post('/api/theme/preview',{'theme':theme})
+        self.assertFalse(preview['persisted']);self.assertEqual(preview['tokens']['--green'],'#175d86')
+        self.assertEqual(self.call('/api/state')[1]['settings']['appearance.theme']['version'],0)
+        saved=self.post('/api/change',{'category':'settings','key':'appearance.theme','value':theme,'reason':'theme acceptance','expected_version':0})
+        css=self.call('/assets/theme.css',anonymous=True)[1]
+        self.assertIn('--green:#175d86;',css);self.assertIn('--radius:4px;',css);self.assertIn('Georgia',css)
+        boot=self.call('/api/public/bootstrap',anonymous=True)[1]
+        self.assertNotIn('design_notes',boot['theme']);self.assertNotIn('Private styling instructions',css)
+        invalid=copy.deepcopy(theme);invalid['colors']['accent']='#ffffff'
+        status,result,_=self.call('/api/change',{'category':'settings','key':'appearance.theme','value':invalid,'reason':'invalid','expected_version':1})
+        self.assertEqual((status,result['error']),(400,'THEME_CONTRAST_TOO_LOW'))
+        injected=copy.deepcopy(theme);injected['colors']['accent']='red; background:url(https://evil.test)'
+        self.assertEqual(self.call('/api/theme/preview',{'theme':injected})[0],400)
+        self.assertEqual(self.call('/api/theme/preview',{'theme':theme},anonymous=True)[0],401)
+        self.assertEqual(self.call('/api/theme/contract',anonymous=True)[0],401)
+        self.post('/api/undo',{'audit_id':saved['audit_id'],'expected_version':1})
+        self.assertEqual(self.call('/api/state')[1]['settings']['appearance.theme']['value'],themes.DEFAULT)
+        for name,colors in themes.PALETTES.items():
+            variant=copy.deepcopy(themes.DEFAULT);variant['preset']=name;variant['colors']=colors
+            self.assertEqual(self.post('/api/theme/preview',{'theme':variant})['theme']['preset'],name)
+
+    def test_public_news_visibility_limits_and_atomic_settings(self):
+        category=self.post('/api/forum/categories',{'name':'News and updates'})['id']
+        self.assertEqual(self.call('/api/public/news',anonymous=True)[1],[])
+        pending=self.post('/api/forum/threads',{'category_id':category,'title':'Pending announcement','body':'Do not expose this'})
+        rejected=self.post('/api/forum/threads',{'category_id':category,'title':'Rejected announcement','body':'Do not expose this either'})
+        public=self.post('/api/forum/threads',{'category_id':category,'title':'A public update','body':'<script>unsafe()</script> A safe escaped announcement.'})
+        other=self.post('/api/forum/threads',{'category_id':1,'title':'Other category','body':'This is not public news'})
+        for thread,state in [(public,'approved'),(other,'approved'),(rejected,'rejected')]:
+            self.post('/api/forum/moderate',{'kind':'threads','id':thread['id'],'state':state,'expected_version':0})
+        self.post('/api/forum/replies',{'thread_id':public['id'],'body':'Reply should stay private'})
+        self.post('/api/news/settings',{'category_id':category,'limit':1,'reason':'Publish news category','expected_category_version':0,'expected_limit_version':0})
+        feed=self.call('/api/public/news',anonymous=True)[1]
+        self.assertEqual([n['id'] for n in feed],[public['id']]);self.assertIn('published_at',feed[0]);self.assertNotIn('author_id',feed[0])
+        home=self.call('/',anonymous=True)[1]
+        self.assertIn('A public update',home);self.assertNotIn('Pending announcement',home);self.assertNotIn('Reply should stay private',home)
+        self.assertEqual(self.call('/news/'+str(pending['id']),anonymous=True)[0],404)
+        self.assertEqual(self.call('/api/public/news/item?id='+str(rejected['id']),anonymous=True)[0],404)
+        self.assertEqual(self.call('/news/'+str(other['id']),anonymous=True)[0],404)
+        page=self.call('/news/'+str(public['id']),anonymous=True)
+        self.assertEqual(page[0],200);self.assertIn('&lt;script&gt;',page[1]);self.assertNotIn('<script>unsafe',page[1])
+        self.assertIn('Published ',page[1])
+        # Historical approvals have no known approval timestamp; show their real posting date.
+        with server.connect() as c: c.execute('UPDATE threads SET published_at=NULL WHERE id=?',(public['id'],))
+        self.assertIn('Posted ',self.call('/news/'+str(public['id']),anonymous=True)[1])
+        # A bad second setting rolls back the first setting and both audit records.
+        before=len(self.call('/api/audit')[1])
+        status,_,_=self.call('/api/news/settings',{'category_id':0,'limit':99,'reason':'invalid limit','expected_category_version':1,'expected_limit_version':1})
+        self.assertEqual(status,400);self.assertEqual(len(self.call('/api/audit')[1]),before)
+        self.assertEqual(self.call('/api/state')[1]['settings']['public.news_category']['value'],category)
+        self.assertEqual(self.call('/api/change',{'category':'settings','key':'public.news_category','value':9999,'reason':'invalid category','expected_version':1})[0],400)
+        self.post('/api/change',{'category':'flags','key':'forum.enabled','value':False,'reason':'Disable forum','expected_version':0})
+        self.assertEqual(self.call('/api/public/news',anonymous=True)[1],[])
+        self.assertEqual(self.call('/news/'+str(public['id']),anonymous=True)[0],404)
+
+    def test_untouched_copy_upgrade_preserves_user_labels(self):
+        with server.connect() as c:
+            c.execute("DELETE FROM schema_migrations WHERE version='003_readable_labels'")
+            c.execute("UPDATE controls SET value=?,version=0 WHERE category='labels' AND key='studio.saved'",(json.dumps('Saved on the server'),))
+            c.execute("UPDATE controls SET value=?,version=3 WHERE category='labels' AND key='content.title'",(json.dumps('My publishing desk'),))
+        server.init()
+        state=server.get_state()['labels']
+        self.assertEqual(state['studio.saved']['value'],'All changes saved')
+        self.assertEqual(state['studio.saved']['version'],1)
+        self.assertEqual(state['content.title'],{'value':'My publishing desk','version':3})
+        self.assertTrue(any(e['key']=='studio.saved' and e['actor']=='system' for e in self.call('/api/audit')[1]))
 
 if __name__ == '__main__': unittest.main()
