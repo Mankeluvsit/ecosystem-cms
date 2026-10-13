@@ -48,7 +48,7 @@ The tracked `003_readable_labels` data migration upgrades only untouched values 
 
 Local status: TESTED_PASS for 13 unit/HTTP tests, browser workflows at five widths, and 24 axe-core A/AA scans. `evidence/ui/results.json` and `accessibility.json` record observations; screenshots use isolated synthetic data. New checks cover preview/save/reset, import/export, contrast rejection, public fonts/layout, news selection/approval, readable audit values, and missing-node regressions for administrators and editors.
 
-GitHub CI for this update is IMPLEMENTED_UNVERIFIED until its run completes. Native Android, additional browser engines, and manual screen-reader checks remain NOT_STARTED. Public hosting remains BLOCKED by missing provider credentials. This is not a declaration of full production readiness.
+GitHub CI is TESTED_PASS: [run 38328736003](https://github.com/Mankeluvsit/ecosystem-cms/actions/runs/38328736003) passed the complete suite for source commit `828f254b8887318fbaf7016b7b08d437bc624827`. Native Android, additional browser engines, and manual screen-reader checks remain NOT_STARTED. Public hosting remains BLOCKED by missing provider credentials. This is not a declaration of full production readiness.
 
 ## Enhancement plan
 

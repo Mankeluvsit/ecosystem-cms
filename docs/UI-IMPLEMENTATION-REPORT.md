@@ -23,7 +23,7 @@ Two supporting server corrections were needed: dashboard counts now honor the un
 | Dialog keyboard behavior | TESTED_PASS | Menu and upload-inspector Escape/focus restoration exercised in Chromium |
 | Zoom and reduced motion | TESTED_PASS | Overview at 200% CSS zoom and reduced-motion media emulation |
 | Syntax | TESTED_PASS | Python compilation and `node --check app/admin.js` |
-| CI workflow execution | IMPLEMENTED_UNVERIFIED | Original redesign run passed; theme/news follow-up awaiting CI |
+| CI workflow execution | TESTED_PASS | [Run 38328736003](https://github.com/Mankeluvsit/ecosystem-cms/actions/runs/38328736003) passed theme/news checks for source commit `828f254b8887318fbaf7016b7b08d437bc624827` |
 | Manual screen-reader assessment | NOT_STARTED | Automated results do not establish full WCAG conformance |
 | Native Android/Termux browser test | NOT_STARTED | Tested in desktop Chromium with mobile viewport sizes |
 | Public deployment | BLOCKED | No hosting provider credential is configured; this source update does not create a deployment |
